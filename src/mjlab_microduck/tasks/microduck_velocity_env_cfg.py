@@ -77,7 +77,7 @@ JOINT_FRICTION_RANDOMIZATION_RANGE = (0.9, 1.1)
 JOINT_DAMPING_RANDOMIZATION_RANGE = (0.9, 1.1)
 ARMATURE_RANDOMIZATION_RANGE = (0.9, 1.1)  # ±10% reflected rotor inertia (microban: dr.joint_armature, same range)
 VELOCITY_PUSH_INTERVAL_S = (3.0, 6.0)  # Apply pushes every 3-6 seconds
-VELOCITY_PUSH_RANGE = (-0.3, 0.3)  # Velocity change range in m/s. Was ±0.5 — an
+VELOCITY_PUSH_RANGE = (-0.4, 0.4)  # Velocity change range in m/s. Was ±0.5 — an
 # ADDITIVE kick larger than max walk speed (0.4) every 3-6 s trains a permanently
 # nervous fall-recovery gait (2026-07 audit). ±0.3 keeps push robustness while
 # letting a calmer gait be optimal.
