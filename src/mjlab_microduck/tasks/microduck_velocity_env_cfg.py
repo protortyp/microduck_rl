@@ -76,6 +76,12 @@ KD_RANDOMIZATION_RANGE = (0.9, 1.1)  # ±10% (can increase to 0.8-1.2)
 JOINT_FRICTION_RANDOMIZATION_RANGE = (0.9, 1.1)
 JOINT_DAMPING_RANDOMIZATION_RANGE = (0.9, 1.1)
 ARMATURE_RANDOMIZATION_RANGE = (0.9, 1.1)  # ±10% reflected rotor inertia (microban: dr.joint_armature, same range)
+# Velocity-tracking Gaussian. With std = sqrt(0.1) = 0.32 m/s and commands up to
+# 0.4 m/s, walking at 40% of the commanded speed still earns ~70% of the reward,
+# so the policy settles on slow shuffling. A std near the error that still
+# matters keeps a gradient toward the commanded speed.
+TRACK_LIN_VEL_STD = 0.15
+TRACK_LIN_VEL_WEIGHT = 3.0
 VELOCITY_PUSH_INTERVAL_S = (3.0, 6.0)  # Apply pushes every 3-6 seconds
 VELOCITY_PUSH_RANGE = (-0.4, 0.4)  # Velocity change range in m/s. Was ±0.5 — an
 # ADDITIVE kick larger than max walk speed (0.4) every 3-6 s trains a permanently
@@ -339,8 +345,8 @@ def make_microduck_velocity_env_cfg(
     cfg.rewards["angular_momentum"].weight = -0.02
 
     # Velocity tracking rewards
-    cfg.rewards["track_linear_velocity"].weight = 2.0
-    cfg.rewards["track_linear_velocity"].params["std"] = math.sqrt(0.1)
+    cfg.rewards["track_linear_velocity"].weight = TRACK_LIN_VEL_WEIGHT
+    cfg.rewards["track_linear_velocity"].params["std"] = TRACK_LIN_VEL_STD
     cfg.rewards["track_angular_velocity"].weight = 2.0
     cfg.rewards["track_angular_velocity"].params["std"] = math.sqrt(0.5)
 
