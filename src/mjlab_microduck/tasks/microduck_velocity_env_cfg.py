@@ -82,11 +82,18 @@ ARMATURE_RANDOMIZATION_RANGE = (0.9, 1.1)  # ±10% reflected rotor inertia (micr
 # matters keeps a gradient toward the commanded speed.
 TRACK_LIN_VEL_STD = 0.15
 TRACK_LIN_VEL_WEIGHT = 3.0
-VELOCITY_PUSH_INTERVAL_S = (3.0, 6.0)  # Apply pushes every 3-6 seconds
-VELOCITY_PUSH_RANGE = (-0.4, 0.4)  # Velocity change range in m/s. Was ±0.5 — an
-# ADDITIVE kick larger than max walk speed (0.4) every 3-6 s trains a permanently
-# nervous fall-recovery gait (2026-07 audit). ±0.3 keeps push robustness while
-# letting a calmer gait be optimal.
+# One-off pushes: small velocity kicks, spaced far apart so the gait settles between
+# them. An additive kick near the max walk speed (0.4 m/s) every few seconds trains
+# a permanently nervous fall-recovery gait.
+VELOCITY_PUSH_INTERVAL_S = (6.0, 12.0)
+VELOCITY_PUSH_RANGE = (-0.25, 0.25)  # velocity change in m/s
+# Sustained pushes: a constant world-frame force on the trunk for a few seconds,
+# like someone leaning on the robot. The robot weighs ~7.8 N, so 1 N per axis is
+# a firm but survivable shove that it has to lean into or step against.
+ENABLE_SUSTAINED_PUSHES = True
+SUSTAINED_PUSH_FORCE_N = 1.0
+SUSTAINED_PUSH_DURATION_S = (1.0, 3.0)
+SUSTAINED_PUSH_COOLDOWN_S = (6.0, 12.0)
 IMU_ORIENTATION_RANDOMIZATION_ANGLE = 6.0  # up-to-6° random-axis IMU mounting error. NOTE: zero-centered (random axis) — trains tolerance to misalignment *magnitude*, NOT a pitch bias. The real board's systematic ~5° pitch offset is corrected at the source in the runtime (imu-pitch-offset), not here.
 ENCODER_BIAS_RANGE = (-0.015, 0.015)  # ±0.86° per-joint encoder offset (constant per env)
 BASE_ORIENTATION_MAX_PITCH_DEG = 10.0  # ±10° forward/backward tilt at episode start
@@ -408,6 +415,19 @@ def make_microduck_velocity_env_cfg(
                     "y": VELOCITY_PUSH_RANGE,
                 },
                 "asset_cfg": SceneEntityCfg("robot"),
+            },
+        )
+
+    if ENABLE_SUSTAINED_PUSHES:
+        cfg.events["sustained_push"] = EventTermCfg(
+            func=mdp.apply_body_impulse,
+            mode="step",
+            params={
+                "force_range": (-SUSTAINED_PUSH_FORCE_N, SUSTAINED_PUSH_FORCE_N),
+                "torque_range": (0.0, 0.0),
+                "duration_s": SUSTAINED_PUSH_DURATION_S,
+                "cooldown_s": SUSTAINED_PUSH_COOLDOWN_S,
+                "asset_cfg": SceneEntityCfg("robot", body_names=("trunk_base",)),
             },
         )
 
