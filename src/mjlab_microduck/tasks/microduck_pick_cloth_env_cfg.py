@@ -8,7 +8,20 @@ cloth is placed and moved by that script, not by an env event.
 
 from mjlab_microduck.robot.microduck_constants import MICRODUCK_CLOTH_CFG
 
+import torch
+from mjlab.managers.observation_manager import ObservationTermCfg
+
 from .microduck_ground_pick_env_cfg import make_microduck_ground_pick_env_cfg
+
+
+def scripted_head_command(env) -> torch.Tensor:
+    """Head-pose command slot [neck_pitch, head_pitch, head_yaw, head_roll] set by the caller.
+
+    The caller stores a (num_envs, 4) tensor in `env.head_command_override`; until then the head
+    holds its home pose, as in the crouch task.
+    """
+    cmd = getattr(env, "head_command_override", None)
+    return cmd if cmd is not None else torch.zeros(env.num_envs, 4, device=env.device)
 
 
 def make_microduck_pick_cloth_env_cfg(**kwargs):
@@ -18,6 +31,8 @@ def make_microduck_pick_cloth_env_cfg(**kwargs):
     # The crouch task randomises a payload force on the mouth; the walker never saw it
     # and the cloth weighs almost nothing, so the host env leaves it out.
     cfg.events.pop("sample_mouth_payload", None)
+    for group in ("actor", "critic"):
+        cfg.observations[group].terms["head_command"] = ObservationTermCfg(func=scripted_head_command)
     # The jaw actuator would otherwise join the policy's action vector.
     cfg.actions["joint_pos"].actuator_names = (r"^(?!passive_).*",)
     # The walker was trained with at most 20 ms of IMU lag; the crouch task's 60 ms
