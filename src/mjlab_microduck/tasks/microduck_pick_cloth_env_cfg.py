@@ -18,6 +18,8 @@ def make_microduck_pick_cloth_env_cfg(**kwargs):
     # The crouch task randomises a payload force on the mouth; the walker never saw it
     # and the cloth weighs almost nothing, so the host env leaves it out.
     cfg.events.pop("sample_mouth_payload", None)
+    # The jaw actuator would otherwise join the policy's action vector.
+    cfg.actions["joint_pos"].actuator_names = (r"^(?!passive_).*",)
     # The walker was trained with at most 20 ms of IMU lag; the crouch task's 60 ms
     # worst case is enough to topple it, and the crouch policy tolerates the shorter lag.
     for term in ("base_ang_vel", "projected_gravity"):

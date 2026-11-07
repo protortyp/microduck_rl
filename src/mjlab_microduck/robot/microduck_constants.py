@@ -3,6 +3,7 @@ from pathlib import Path
 
 import mujoco
 from mjlab.actuator import XmlActuatorCfg
+from mjlab.actuator.builtin_actuator import BuiltinPositionActuatorCfg
 from mjlab_microduck.actuator import (
     BacklashEncoderBamActuatorCfg,
     FrictionDRBamActuatorCfg,
@@ -100,6 +101,12 @@ def get_allcollisions_backlash_spec() -> mujoco.MjSpec:
 
 def get_ball_spec() -> mujoco.MjSpec:
     return mujoco.MjSpec.from_file(str(MICRODUCK_BALL_XML))
+
+
+def get_backlash_jaw_spec() -> mujoco.MjSpec:
+    from mjlab_microduck.robot.jaw import add_mouth
+
+    return add_mouth(get_backlash_spec())
 
 
 def get_cloth_spec() -> mujoco.MjSpec:
@@ -260,6 +267,28 @@ MICRODUCK_BACKLASH_ROBOT_CFG = EntityCfg(
     collisions=(FULL_COLLISION,),
     articulation=EntityArticulationInfoCfg(
         actuators=(backlash_actuators,),
+        soft_joint_pos_limit_factor=0.9,
+    ),
+)
+
+# Backlash robot with the hinged jaw as a 15th joint. The mouth sits outside every policy: it is
+# commanded by the caller through its joint target, and its actuator is a small position servo
+# (the real one is an XL330 at the same P-gain as the rest, but its torque limit is not published).
+MICRODUCK_BACKLASH_JAW_ROBOT_CFG = EntityCfg(
+    spec_fn=get_backlash_jaw_spec,
+    init_state=BACKLASH_HOME_FRAME,
+    collisions=(FULL_COLLISION,),
+    articulation=EntityArticulationInfoCfg(
+        actuators=(
+            backlash_actuators,
+            BuiltinPositionActuatorCfg(
+                target_names_expr=("passive_mouth",),
+                stiffness=0.5,
+                damping=0.03,
+                effort_limit=0.4,
+                armature=2e-4,
+            ),
+        ),
         soft_joint_pos_limit_factor=0.9,
     ),
 )

@@ -244,6 +244,7 @@ register_mjlab_task(
 # unchanged vs the base tasks.
 from mjlab_microduck.robot.microduck_constants import (
     MICRODUCK_ALLCOLLISIONS_BACKLASH_ROBOT_CFG,
+    MICRODUCK_BACKLASH_JAW_ROBOT_CFG,
     MICRODUCK_BACKLASH_ROBOT_CFG,
     MICRODUCK_ROLLERS_BACKLASH_ROBOT_CFG,
     MICRODUCK_WALK_BACKLASH_ROBOT_CFG,
@@ -257,10 +258,11 @@ _BL_GROUNDCONTACT = MICRODUCK_BACKLASH_ROBOT_CFG
 _BL_WALK = MICRODUCK_WALK_BACKLASH_ROBOT_CFG
 _BL_ROLLERS = MICRODUCK_ROLLERS_BACKLASH_ROBOT_CFG
 _BL_ALLCOLLISIONS = MICRODUCK_ALLCOLLISIONS_BACKLASH_ROBOT_CFG
+_BL_JAW = MICRODUCK_BACKLASH_JAW_ROBOT_CFG
 _BACKLASH_TASKS = (
     ("Mjlab-Velocity-Flat-Backlash-MicroDuck", make_microduck_velocity_env_cfg, {}, MicroduckRlCfg, _BL_WALK),
     ("Mjlab-Velocity-Rough-Backlash-MicroDuck", make_microduck_velocity_env_cfg, {"rough": True}, MicroduckRlCfg, _BL_WALK),
-    ("Mjlab-PickCloth-Flat-Backlash-MicroDuck", make_microduck_pick_cloth_env_cfg, {}, MicroduckGroundPickRlCfg, _BL_GROUNDCONTACT),
+    ("Mjlab-PickCloth-Flat-Backlash-MicroDuck", make_microduck_pick_cloth_env_cfg, {}, MicroduckGroundPickRlCfg, _BL_JAW),
     ("Mjlab-VelStand-Flat-Backlash-MicroDuck", make_microduck_velstand_env_cfg, {}, MicroduckVelStandRlCfg, _BL_ALLCOLLISIONS),
     ("Mjlab-VelStand-Rough-Backlash-MicroDuck", make_microduck_velstand_env_cfg, {"rough": True}, MicroduckVelStandRlCfg, _BL_ALLCOLLISIONS),
     ("Mjlab-StandUp-Flat-Backlash-MicroDuck", make_microduck_standup_env_cfg, {}, MicroduckStandUpRlCfg, _BL_GROUNDCONTACT),
