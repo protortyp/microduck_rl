@@ -230,3 +230,40 @@ class ApartmentTerrainCfg(SubTerrainCfg):
 
         LAYOUTS.append(Layout(occupancy=occ, station=station, rooms=rooms, rugs=rugs))
         return TerrainOutput(origin=np.array([station[0], station[1], 0.0]), geometries=geoms)
+
+
+@dataclass(kw_only=True)
+class FixedPlanTerrainCfg(SubTerrainCfg):
+    """A measured or hand-drawn floor plan from a JSON file (see docs/fetch/plans/README.md).
+
+    Keys, all in metres in the patch frame (origin at the patch's lower-left corner):
+      walls:     [[x0, y0, x1, y1], ...]           axis-aligned wall boxes, WALL_H tall
+      furniture: [[x0, y0, x1, y1, height], ...]   blocks the robot and the camera
+      rugs:      [[cx, cy, half_x, half_y, pile_m], ...]
+      station:   [x, y]
+    """
+
+    plan: str = ""
+
+    def function(self, difficulty, spec, rng):
+        import json
+
+        plan = json.loads(open(self.plan).read())
+        body = spec.body("terrain")
+        sx, sy = self.size
+        geoms = [TerrainGeometry(geom=make_plane(body, self.size, 0.0, center_zero=False)[0], color=_FLOOR)]
+        occ = np.zeros((int(round(sy / CELL)), int(round(sx / CELL))), dtype=np.uint8)
+        for x0, y0, x1, y1 in plan["walls"]:
+            geoms.append(_box(body, ((x0 + x1) / 2, (y0 + y1) / 2, WALL_H / 2), ((x1 - x0) / 2, (y1 - y0) / 2, WALL_H / 2), _WALL))
+            _mark(occ, x0, y0, x1, y1)
+        for x0, y0, x1, y1, h in plan.get("furniture", []):
+            geoms.append(_box(body, ((x0 + x1) / 2, (y0 + y1) / 2, h / 2), ((x1 - x0) / 2, (y1 - y0) / 2, h / 2), _FURNITURE))
+            _mark(occ, x0, y0, x1, y1)
+        rugs = []
+        for cx, cy, hx, hy, pile in plan.get("rugs", []):
+            geoms.append(_box(body, (cx, cy, pile / 2), (hx, hy, pile / 2), _RUG, solref=(0.08, 0.8),
+                              solimp=(0.7, 0.9, 0.003, 0.5, 2.0), friction=(1.2, 0.005, 0.0001)))
+            rugs.append((cx, cy, hx, hy, 0.0))
+        station = tuple(plan["station"])
+        LAYOUTS.append(Layout(occupancy=occ, station=station, rooms=plan.get("rooms", []), rugs=rugs))
+        return TerrainOutput(origin=np.array([station[0], station[1], 0.0]), geometries=geoms)

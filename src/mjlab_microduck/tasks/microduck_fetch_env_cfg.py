@@ -11,7 +11,9 @@ from mjlab.terrains.terrain_generator import TerrainGeneratorCfg
 
 from mjlab_microduck.robot.microduck_constants import MICRODUCK_CLOTH_CFG
 
-from .home_layouts import ApartmentTerrainCfg
+import os
+
+from .home_layouts import ApartmentTerrainCfg, FixedPlanTerrainCfg
 from .microduck_home_env_cfg import _soften_floor_contacts
 from .microduck_pick_cloth_env_cfg import make_microduck_pick_cloth_env_cfg
 
@@ -37,6 +39,12 @@ def make_microduck_fetch_env_cfg(play: bool = False, num_cloths: int = NUM_CLOTH
     cfg.scene.entities = entities
     cfg.scene.terrain.terrain_type = "generator"
     cfg.scene.terrain.terrain_generator = deepcopy(APARTMENT_TERRAINS_CFG)
+    # MICRODUCK_FETCH_PLAN=<plan.json> puts every env in that one floor plan (held-out evaluation).
+    plan = os.environ.get("MICRODUCK_FETCH_PLAN")
+    if plan:
+        gen = cfg.scene.terrain.terrain_generator
+        gen.sub_terrains = {"plan": FixedPlanTerrainCfg(proportion=1.0, plan=plan)}
+        gen.num_rows, gen.num_cols = 1, 1
     cfg.scene.spec_fn = _soften_floor_contacts
     # Walls and furniture add contacts; same headroom and solver settings as the rough walker.
     cfg.sim.nconmax = 200
