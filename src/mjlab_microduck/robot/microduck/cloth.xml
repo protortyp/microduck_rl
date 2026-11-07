@@ -1,0 +1,15 @@
+<mujoco model="microduck_cloth">
+    <compiler angle="radian" autolimits="true"/>
+
+    <worldbody>
+        <!-- Flat 8 cm x 8 cm x 4 mm cloth patch. It has no collision geometry: the
+             pick-up task teleports it with the mouth once grasped, so contact would
+             only add noise to the floor and robot physics. -->
+        <body name="cloth" pos="0.5 0 0.002">
+            <freejoint name="cloth_free"/>
+            <inertial pos="0 0 0" mass="0.005" diaginertia="1e-6 1e-6 1e-6"/>
+            <geom type="box" name="cloth_geom" size="0.04 0.04 0.002" rgba="0.9 0.1 0.15 1"
+                  contype="0" conaffinity="0"/>
+        </body>
+    </worldbody>
+</mujoco>

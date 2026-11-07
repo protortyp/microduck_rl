@@ -25,6 +25,7 @@ MICRODUCK_GROUNDCONTACT_XML: Path = _ROBOT_DIR / "robot_groundcontact.xml"
 MICRODUCK_ALLCOLLISIONS_XML: Path = _ROBOT_DIR / "robot_allcollisions.xml"
 # 70mm / 15g ball prop for the BallKick task.
 MICRODUCK_BALL_XML: Path = _ROBOT_DIR / "ball.xml"
+MICRODUCK_CLOTH_XML: Path = _ROBOT_DIR / "cloth.xml"
 # Roller-skate model: 14 actuated joints + passive wheel hinges (passive_*wheel).
 MICRODUCK_GROUNDCONTACT_ROLLERS_XML: Path = _ROBOT_DIR / "robot_groundcontact_rollers.xml"
 # Backlash models: every servo joint gets an unactuated passive_<joint>_backlash
@@ -99,6 +100,10 @@ def get_allcollisions_backlash_spec() -> mujoco.MjSpec:
 
 def get_ball_spec() -> mujoco.MjSpec:
     return mujoco.MjSpec.from_file(str(MICRODUCK_BALL_XML))
+
+
+def get_cloth_spec() -> mujoco.MjSpec:
+    return mujoco.MjSpec.from_file(str(MICRODUCK_CLOTH_XML))
 
 
 def get_backlash_spec() -> mujoco.MjSpec:
@@ -300,6 +305,12 @@ MICRODUCK_ROLLERS_BACKLASH_ROBOT_CFG = EntityCfg(
 MICRODUCK_BALL_CFG = EntityCfg(
     spec_fn=get_ball_spec,
     init_state=EntityCfg.InitialStateCfg(pos=(0.3, 0.0, 0.035)),
+)
+
+# Flat cloth patch for the PickCloth task; placed by the task's reset event.
+MICRODUCK_CLOTH_CFG = EntityCfg(
+    spec_fn=get_cloth_spec,
+    init_state=EntityCfg.InitialStateCfg(pos=(0.5, 0.0, 0.002)),
 )
 
 # Roller skate robot: the 4 passive wheel joints (passive_*wheel) have no XML
