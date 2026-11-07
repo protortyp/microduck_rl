@@ -72,10 +72,13 @@ def _reachable(occ, start):
 
 
 def _inflate(occ, r=1):
-    out = occ.copy()
-    for di in range(-r, r + 1):
-        for dj in range(-r, r + 1):
-            out |= np.roll(np.roll(occ, di, 0), dj, 1)
+    """Binary dilation by r cells; the patch edge counts as wall (no wrap-around)."""
+    h, w = occ.shape
+    pad = np.pad(occ, r, constant_values=1)
+    out = np.zeros_like(occ)
+    for di in range(2 * r + 1):
+        for dj in range(2 * r + 1):
+            out |= pad[di:di + h, dj:dj + w]
     return out
 
 
@@ -112,12 +115,14 @@ class ApartmentTerrainCfg(SubTerrainCfg):
         for _ in range(40):
             if len(rooms) >= target:
                 break
-            k = int(np.argmax([(r[2] - r[0]) * (r[3] - r[1]) for r in rooms]))
+            splittable = [i for i, r in enumerate(rooms)
+                          if max(r[2] - r[0], r[3] - r[1]) >= 2 * MIN_ROOM + WALL_T]
+            if not splittable:
+                break
+            k = max(splittable, key=lambda i: (rooms[i][2] - rooms[i][0]) * (rooms[i][3] - rooms[i][1]))
             x0, y0, x1, y1 = rooms[k]
             vertical = (x1 - x0) >= (y1 - y0)
             span = (x1 - x0) if vertical else (y1 - y0)
-            if span < 2 * MIN_ROOM + WALL_T:
-                break
             cut = rng.uniform(MIN_ROOM, span - MIN_ROOM - WALL_T)
             door = rng.uniform(*DOOR_W)
             if vertical:
@@ -164,11 +169,16 @@ class ApartmentTerrainCfg(SubTerrainCfg):
                     box = (r[0], y, r[0] + d, y + w) if side == 2 else (r[2] - d, y, r[2], y + w)
                 if near_door_or_station(*box, pad=0.7):
                     continue
+                if any(not (box[2] + 0.1 < f[0] or f[2] + 0.1 < box[0] or box[3] + 0.1 < f[1] or f[3] + 0.1 < box[1])
+                       for f in furniture):
+                    continue
                 furniture.append(box)
         for box in furniture:
             trial = occ.copy()
             _mark(trial, *box)
             si, sj = int(station[1] / CELL), int(station[0] / CELL)
+            if _inflate(trial)[si, sj]:
+                continue
             before = _reachable(_inflate(occ), (si, sj)).sum()
             after = _reachable(_inflate(trial), (si, sj)).sum()
             # Drop furniture that walls off part of the floor rather than just occupying it.
@@ -180,16 +190,18 @@ class ApartmentTerrainCfg(SubTerrainCfg):
             h = rng.uniform(0.3, 0.5)
             geoms.append(_box(body, ((x0 + x1) / 2, (y0 + y1) / 2, h / 2), ((x1 - x0) / 2, (y1 - y0) / 2, h / 2), _FURNITURE))
 
-        # Thick rugs (soft, grippy, raised 5-25 mm), not over the station.
+        # Thick rugs (soft, grippy, raised 4-15 mm), not over the station.
         rugs = []
         for r in rooms:
             if rng.random() < 0.5:
                 continue
             hx, hy = rng.uniform(0.5, 1.1), rng.uniform(0.4, 0.8)
-            cx, cy = rng.uniform(r[0] + hx * 0.6, r[2] - hx * 0.6), rng.uniform(r[1] + hy * 0.6, r[3] - hy * 0.6)
+            if r[2] - r[0] < 2 * hx + 0.2 or r[3] - r[1] < 2 * hy + 0.2:
+                continue
+            cx, cy = rng.uniform(r[0] + hx + 0.05, r[2] - hx - 0.05), rng.uniform(r[1] + hy + 0.05, r[3] - hy - 0.05)
             if abs(cx - station[0]) < hx + 0.3 and abs(cy - station[1]) < hy + 0.3:
                 continue
-            pile = 0.005 + difficulty * 0.02
+            pile = 0.004 + difficulty * 0.011  # compressed pile height; the walker lifts its feet 1-2 cm
             geoms.append(_box(body, (cx, cy, pile / 2), (hx, hy, pile / 2), _RUG,
                               solref=(0.06 + 0.04 * difficulty, 0.8), solimp=(0.7, 0.9, 0.003, 0.5, 2.0),
                               friction=(rng.uniform(0.9, 1.5), 0.005, 0.0001)))
@@ -209,8 +221,12 @@ class ApartmentTerrainCfg(SubTerrainCfg):
             if np.hypot(cx - station[0], cy - station[1]) < STATION_CLEARANCE:
                 continue
             h = rng.uniform(0.004, 0.008)
-            geoms.append(_box(body, (cx, cy, h / 2), (rng.uniform(0.3, 0.8), 0.004, h / 2), _CABLE,
-                              yaw=rng.uniform(0, np.pi)))
+            half_len, yaw = rng.uniform(0.3, 0.8), rng.uniform(0, np.pi)
+            ends = [(cx + sgn * half_len * np.cos(yaw), cy + sgn * half_len * np.sin(yaw)) for sgn in (-1, 1)]
+            # Both ends inside the same room, so a cable never runs through a wall or doorway.
+            if not all(r[0] + 0.1 < x < r[2] - 0.1 and r[1] + 0.1 < y < r[3] - 0.1 for x, y in ends):
+                continue
+            geoms.append(_box(body, (cx, cy, h / 2), (half_len, 0.004, h / 2), _CABLE, yaw=yaw))
 
         LAYOUTS.append(Layout(occupancy=occ, station=station, rooms=rooms, rugs=rugs))
         return TerrainOutput(origin=np.array([station[0], station[1], 0.0]), geometries=geoms)
