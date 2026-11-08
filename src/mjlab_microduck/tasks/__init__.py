@@ -59,7 +59,7 @@ from .microduck_velocity_swizzle_env_cfg import (
     MicroduckSwizzleRlCfg,
 )
 from .microduck_fetch_env_cfg import make_microduck_fetch_env_cfg
-from .microduck_home_env_cfg import make_microduck_home_env_cfg
+from .microduck_home_env_cfg import make_microduck_home_env_cfg, make_microduck_home_fast_env_cfg
 from .microduck_pick_cloth_env_cfg import make_microduck_pick_cloth_env_cfg
 from .microduck_roller_crouch_env_cfg import (
     make_microduck_roller_crouch_env_cfg,
@@ -267,6 +267,7 @@ _BACKLASH_TASKS = (
     ("Mjlab-Fetch-Backlash-MicroDuck", make_microduck_fetch_env_cfg, {}, MicroduckGroundPickRlCfg, _BL_JAW),
     ("Mjlab-PickCloth-Flat-Backlash-MicroDuck", make_microduck_pick_cloth_env_cfg, {}, MicroduckGroundPickRlCfg, _BL_JAW),
     ("Mjlab-Velocity-Home-Backlash-MicroDuck", make_microduck_home_env_cfg, {}, MicroduckRlCfg, _BL_WALK),
+    ("Mjlab-Velocity-HomeFast-Backlash-MicroDuck", make_microduck_home_fast_env_cfg, {}, MicroduckRlCfg, _BL_WALK),
     ("Mjlab-VelStand-Flat-Backlash-MicroDuck", make_microduck_velstand_env_cfg, {}, MicroduckVelStandRlCfg, _BL_ALLCOLLISIONS),
     ("Mjlab-VelStand-Rough-Backlash-MicroDuck", make_microduck_velstand_env_cfg, {"rough": True}, MicroduckVelStandRlCfg, _BL_ALLCOLLISIONS),
     ("Mjlab-StandUp-Flat-Backlash-MicroDuck", make_microduck_standup_env_cfg, {}, MicroduckStandUpRlCfg, _BL_GROUNDCONTACT),

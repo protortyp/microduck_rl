@@ -65,3 +65,20 @@ def make_microduck_home_env_cfg(play: bool = False):
     for stage in stages:
         stage["weight"] = max(stage["weight"], ACTION_RATE_FINAL) if stage["weight"] < 0 else stage["weight"]
     return cfg
+
+
+# The fetch executive walks forward almost all the time; the base walker, trained on a symmetric
+# +-0.4 m/s range, realises at most 0.25 m/s and falls more the harder it is pushed. These settings
+# spend most samples on fast forward walking and make speed errors cost more.
+FAST_LIN_VEL_X = (-0.2, 0.5)
+FAST_FORWARD_FRACTION = 0.5
+FAST_TRACK_STD = 0.1
+
+
+def make_microduck_home_fast_env_cfg(play: bool = False):
+    cfg = make_microduck_home_env_cfg(play=play)
+    twist = cfg.commands["twist"]
+    twist.ranges.lin_vel_x = FAST_LIN_VEL_X
+    twist.rel_forward_envs = FAST_FORWARD_FRACTION
+    cfg.rewards["track_linear_velocity"].params["std"] = FAST_TRACK_STD
+    return cfg
