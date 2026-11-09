@@ -88,3 +88,23 @@ def make_microduck_home_fast_env_cfg(play: bool = False):
     wide.params["std"] = FAST_WIDE_TRACK_STD
     cfg.rewards["track_linear_velocity_wide"] = wide
     return cfg
+
+
+# Turning is what limits the fetch task: the base walker realises about half of a yaw-rate command
+# (0.49 rad/s at 1.0, 1.47 at 3.0) and capping the executive's turn command at 1.0 rad/s halves the
+# deliveries. The base yaw term (std 0.71) pays 60% for a 0.5 rad/s shortfall, so undershooting
+# costs little; an extra term with std 0.4 prices it, while the base term keeps the gradient for
+# large errors.
+TURN_ANG_VEL_Z = (-2.0, 2.0)
+TURN_TRACK_STD = 0.4
+TURN_TRACK_WEIGHT = 2.0
+
+
+def make_microduck_home_turn_env_cfg(play: bool = False):
+    cfg = make_microduck_home_env_cfg(play=play)
+    cfg.commands["twist"].ranges.ang_vel_z = TURN_ANG_VEL_Z
+    tight = deepcopy(cfg.rewards["track_angular_velocity"])
+    tight.weight = TURN_TRACK_WEIGHT
+    tight.params["std"] = TURN_TRACK_STD
+    cfg.rewards["track_angular_velocity_tight"] = tight
+    return cfg
