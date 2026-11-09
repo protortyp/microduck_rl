@@ -19,6 +19,7 @@ from .home_terrains import (
     HomeThresholdTerrainCfg,
 )
 from .microduck_velocity_env_cfg import make_microduck_velocity_env_cfg
+from .microduck_velstand_env_cfg import make_microduck_velstand_env_cfg
 
 # Smoothness penalty held at this value from iteration 1000 on. At -1.0 it outweighed velocity
 # tracking and the walker settled at 0.18 m/s against a 0.30 m/s command.
@@ -57,8 +58,7 @@ def _soften_floor_contacts(spec: _mujoco.MjSpec) -> None:
             geom.solimp = [0.85, 0.95, 0.001, 0.5, 2.0]
 
 
-def make_microduck_home_env_cfg(play: bool = False):
-    cfg = make_microduck_velocity_env_cfg(play=play, rough=True)
+def _home_floors(cfg, play):
     terrain_cfg = deepcopy(HOME_TERRAINS_CFG)
     if play:
         terrain_cfg.num_rows, terrain_cfg.num_cols = 5, 5
@@ -66,6 +66,11 @@ def make_microduck_home_env_cfg(play: bool = False):
     cfg.scene.spec_fn = _soften_floor_contacts
     cfg.curriculum.pop("terrain_levels", None)
     cfg.events["foot_friction"].params["ranges"] = FOOT_FRICTION_RANGE
+
+
+def make_microduck_home_env_cfg(play: bool = False):
+    cfg = make_microduck_velocity_env_cfg(play=play, rough=True)
+    _home_floors(cfg, play)
     stages = cfg.curriculum["action_rate_weight"].params["weight_stages"]
     for stage in stages:
         stage["weight"] = max(stage["weight"], ACTION_RATE_FINAL) if stage["weight"] < 0 else stage["weight"]
@@ -115,6 +120,19 @@ def make_microduck_home_turn_env_cfg(play: bool = False):
     return cfg
 
 
+def make_microduck_home_robust_env_cfg(play: bool = False):
+    return _robust(make_microduck_home_env_cfg(play=play))
+
+
+# VelStand (walk + protective fall + get-up, real-robot tested as v8) on the same floors and
+# commands. Resumed from v8, it keeps getting up after falls, which the velocity-recipe walkers
+# cannot: there a fall ends the fetch episode.
+def make_microduck_velstand_home_env_cfg(play: bool = False):
+    cfg = make_microduck_velstand_env_cfg(play=play, rough=True)
+    _home_floors(cfg, play)
+    return _robust(cfg)
+
+
 # Robust home walker, the base skill for the fetch task. Measured gaps of home-walk3 inside fetch:
 # it tips at 1.2-1.4 cm rug edges (most held-out falls happen there), and the fetch executive
 # commands turn rates up to 3 rad/s and changes the command every 0.2 s, while the walker was
@@ -131,8 +149,7 @@ ROBUST_FORWARD_FRACTION = 0.3
 ROBUST_RESAMPLE_S = (0.3, 6.0)
 
 
-def make_microduck_home_robust_env_cfg(play: bool = False):
-    cfg = make_microduck_home_env_cfg(play=play)
+def _robust(cfg):
     gen = cfg.scene.terrain.terrain_generator
     others = sum(t.proportion for t in gen.sub_terrains.values())
     for t in gen.sub_terrains.values():
@@ -153,7 +170,21 @@ def make_microduck_home_robust_env_cfg(play: bool = False):
     wide = deepcopy(cfg.rewards["track_linear_velocity"])
     wide.weight, wide.params["std"] = FAST_WIDE_TRACK_WEIGHT, FAST_WIDE_TRACK_STD
     cfg.rewards["track_linear_velocity_wide"] = wide
-    tight = deepcopy(cfg.rewards["track_angular_velocity"])
-    tight.weight, tight.params["std"] = TURN_TRACK_WEIGHT, TURN_TRACK_STD
-    cfg.rewards["track_angular_velocity_tight"] = tight
+    if "track_yaw_fine" not in cfg.rewards:  # VelStand already has its own fine yaw term
+        tight = deepcopy(cfg.rewards["track_angular_velocity"])
+        tight.weight, tight.params["std"] = TURN_TRACK_WEIGHT, TURN_TRACK_STD
+        cfg.rewards["track_angular_velocity_tight"] = tight
     return cfg
+
+
+def make_microduck_home_robust_env_cfg(play: bool = False):
+    return _robust(make_microduck_home_env_cfg(play=play))
+
+
+# VelStand (walk + protective fall + get-up, real-robot tested as v8) on the same floors and
+# commands. Resumed from v8, it keeps getting up after falls, which the velocity-recipe walkers
+# cannot: there a fall ends the fetch episode.
+def make_microduck_velstand_home_env_cfg(play: bool = False):
+    cfg = make_microduck_velstand_env_cfg(play=play, rough=True)
+    _home_floors(cfg, play)
+    return _robust(cfg)
