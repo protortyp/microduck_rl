@@ -11,6 +11,10 @@ import mujoco as _mujoco
 from mjlab.terrains.primitive_terrains import BoxFlatTerrainCfg, BoxRandomGridTerrainCfg
 from mjlab.terrains.heightfield_terrains import HfPyramidSlopedTerrainCfg
 from mjlab.terrains.terrain_generator import TerrainGeneratorCfg
+from mjlab.managers import ObservationTermCfg, RewardTermCfg
+from mjlab.sensor import GridPatternCfg, ObjRef, RayCastSensorCfg
+
+from . import mdp as microduck_mdp
 
 from .home_terrains import (
     HomeClutterTerrainCfg,
@@ -170,3 +174,61 @@ def _robust(cfg):
 
 def make_microduck_home_robust_env_cfg(play: bool = False):
     return _robust(make_microduck_home_env_cfg(play=play))
+
+
+# Foot lift for the robust walker. Measured on home-robust1: walking straight on
+# flat floor the swing apex is ~19 mm (p95 26 mm), yet a quarter to half of the
+# robots fall at 1.5 cm edges, because the foot is low early and late in each
+# swing, when the toe meets the edge. The base foot terms cannot change that
+# (see mdp.swing_foot_height), so these replace them:
+# - a per-step lift reward on every swing foot, worth up to ~0.8/s against the
+#   ~1.5/s action-rate penalty, so a whole-swing lift is affordable;
+# - air time paid in proportion to how high the swing got, and only while the
+#   trunk moves;
+# - a stumble cost for toes pushing against edge faces.
+# The critic also gets a terrain height scan (privileged, training only): with
+# it, value estimates see an edge coming and falls there stop being surprises.
+# The actor stays blind and 61D.
+LIFT_TARGET = 0.03
+LIFT_WEIGHT = 1.0
+LIFT_MAX_AIR_TIME = 0.3
+AIR_TIME_WEIGHT = 3.0
+STUMBLE_WEIGHT = -1.0
+CRITIC_SCAN_SIZE = (0.8, 0.5)  # m, forward x lateral, centred on the trunk
+CRITIC_SCAN_RESOLUTION = 0.05
+
+
+def _lift(cfg):
+    for name in ("foot_clearance", "foot_swing_height"):
+        cfg.rewards.pop(name, None)
+    contact, heights = "feet_ground_contact", "foot_height_scan"
+    common = dict(sensor_name=contact, height_sensor_name=heights, target_height=LIFT_TARGET,
+                  command_name="twist", command_threshold=0.01)
+    cfg.rewards["swing_foot_height"] = RewardTermCfg(
+        func=microduck_mdp.swing_foot_height, weight=LIFT_WEIGHT,
+        params=dict(common, max_air_time=LIFT_MAX_AIR_TIME))
+    air = cfg.rewards["air_time"].params
+    cfg.rewards["air_time"] = RewardTermCfg(
+        func=microduck_mdp.feet_air_time_lifted, weight=AIR_TIME_WEIGHT,
+        params=dict(common, threshold_min=air["threshold_min"], threshold_max=air["threshold_max"]))
+    cfg.rewards["foot_stumble"] = RewardTermCfg(
+        func=microduck_mdp.foot_stumble, weight=STUMBLE_WEIGHT, params={"sensor_name": contact})
+
+    scan = RayCastSensorCfg(
+        name="terrain_scan",
+        frame=ObjRef(type="body", name="trunk_base", entity="robot"),
+        ray_alignment="yaw",
+        pattern=GridPatternCfg(size=CRITIC_SCAN_SIZE, resolution=CRITIC_SCAN_RESOLUTION),
+        max_distance=1.0,
+        exclude_parent_body=True,
+        include_geom_groups=(0,),
+    )
+    cfg.scene.sensors = tuple(cfg.scene.sensors) + (scan,)
+    cfg.observations["critic"].terms["height_scan"] = ObservationTermCfg(
+        func=microduck_mdp.height_scan_safe, params={"sensor_name": scan.name}, scale=1.0 / scan.max_distance)
+    return cfg
+
+
+def make_microduck_home_lift_env_cfg(play: bool = False):
+    return _lift(make_microduck_home_robust_env_cfg(play=play))
+
