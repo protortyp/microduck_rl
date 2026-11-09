@@ -12,7 +12,12 @@ from mjlab.terrains.primitive_terrains import BoxFlatTerrainCfg, BoxRandomGridTe
 from mjlab.terrains.heightfield_terrains import HfPyramidSlopedTerrainCfg
 from mjlab.terrains.terrain_generator import TerrainGeneratorCfg
 
-from .home_terrains import HomeClutterTerrainCfg, HomeRugTerrainCfg, HomeThresholdTerrainCfg
+from .home_terrains import (
+    HomeClutterTerrainCfg,
+    HomeEdgeFrameTerrainCfg,
+    HomeRugTerrainCfg,
+    HomeThresholdTerrainCfg,
+)
 from .microduck_velocity_env_cfg import make_microduck_velocity_env_cfg
 
 # Smoothness penalty held at this value from iteration 1000 on. At -1.0 it outweighed velocity
@@ -106,5 +111,49 @@ def make_microduck_home_turn_env_cfg(play: bool = False):
     tight = deepcopy(cfg.rewards["track_angular_velocity"])
     tight.weight = TURN_TRACK_WEIGHT
     tight.params["std"] = TURN_TRACK_STD
+    cfg.rewards["track_angular_velocity_tight"] = tight
+    return cfg
+
+
+# Robust home walker, the base skill for the fetch task. Measured gaps of home-walk3 inside fetch:
+# it tips at 1.2-1.4 cm rug edges (most held-out falls happen there), and the fetch executive
+# commands turn rates up to 3 rad/s and changes the command every 0.2 s, while the walker was
+# trained on +-1 rad/s held for several seconds. These settings put a straight edge next to every
+# spawn in a third of the patches, cover the executive's command range, and resample commands
+# often enough that switching mid-stride is ordinary experience.
+ROBUST_EDGE_PROPORTION = 0.35  # split between soft (rug) and hard (floorboard) frames
+ROBUST_SOFT_EDGE_HEIGHT = (0.005, 0.03)
+ROBUST_HARD_EDGE_HEIGHT = (0.005, 0.025)
+ROBUST_LIN_VEL_X = (-0.2, 0.4)
+ROBUST_ANG_VEL_Z = (-2.0, 2.0)
+ROBUST_FORWARD_FRACTION = 0.3
+# Uniform per env, so about a fifth of the commands last under 1.5 s.
+ROBUST_RESAMPLE_S = (0.3, 6.0)
+
+
+def make_microduck_home_robust_env_cfg(play: bool = False):
+    cfg = make_microduck_home_env_cfg(play=play)
+    gen = cfg.scene.terrain.terrain_generator
+    others = sum(t.proportion for t in gen.sub_terrains.values())
+    for t in gen.sub_terrains.values():
+        t.proportion *= (1.0 - ROBUST_EDGE_PROPORTION) / others
+    half = ROBUST_EDGE_PROPORTION / 2
+    gen.sub_terrains["edge_soft"] = HomeEdgeFrameTerrainCfg(
+        proportion=half, soft=True, height_range=ROBUST_SOFT_EDGE_HEIGHT)
+    gen.sub_terrains["edge_hard"] = HomeEdgeFrameTerrainCfg(
+        proportion=half, soft=False, height_range=ROBUST_HARD_EDGE_HEIGHT)
+
+    twist = cfg.commands["twist"]
+    twist.ranges.lin_vel_x = ROBUST_LIN_VEL_X
+    twist.ranges.ang_vel_z = ROBUST_ANG_VEL_Z
+    twist.rel_forward_envs = ROBUST_FORWARD_FRACTION
+    twist.resampling_time_range = ROBUST_RESAMPLE_S
+    # Same wide speed term and tight yaw term as the fast and turn variants: the base terms pay
+    # most of their reward for undershooting fast or sharp commands.
+    wide = deepcopy(cfg.rewards["track_linear_velocity"])
+    wide.weight, wide.params["std"] = FAST_WIDE_TRACK_WEIGHT, FAST_WIDE_TRACK_STD
+    cfg.rewards["track_linear_velocity_wide"] = wide
+    tight = deepcopy(cfg.rewards["track_angular_velocity"])
+    tight.weight, tight.params["std"] = TURN_TRACK_WEIGHT, TURN_TRACK_STD
     cfg.rewards["track_angular_velocity_tight"] = tight
     return cfg

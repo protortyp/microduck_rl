@@ -68,6 +68,50 @@ class HomeThresholdTerrainCfg(SubTerrainCfg):
 
 
 @dataclass(kw_only=True)
+class HomeEdgeFrameTerrainCfg(SubTerrainCfg):
+    """A square frame of rug (soft) or floorboard (hard) around the spawn point.
+
+    The robot starts in the frame's hole, so whatever it is commanded to do it meets a straight
+    edge within a few seconds: up onto the frame, along it, and down off its outer edge. On the
+    random rugs of HomeRugTerrainCfg an edge is met only now and then, and fetch walkers fell
+    mostly at rug edges.
+
+    With `heights` set, difficulty picks one of them (row r of a curriculum grid gets
+    heights[r * len(heights) // num_rows]), which gives evaluations fixed heights per row.
+    """
+
+    height_range: tuple[float, float] = (0.005, 0.03)
+    heights: tuple[float, ...] | None = None
+    soft: bool = True
+    hole_range: tuple[float, float] = (0.35, 0.6)  # half-width of the hole the robot starts in
+    width_range: tuple[float, float] = (0.6, 1.0)  # width of the frame's sides
+
+    def function(self, difficulty, spec, rng):
+        body = spec.body("terrain")
+        geoms = [TerrainGeometry(geom=make_plane(body, self.size, 0.0, center_zero=False)[0], color=_FLOOR)]
+        if self.heights:
+            h = self.heights[min(int(difficulty * len(self.heights)), len(self.heights) - 1)]
+        else:
+            h = self.height_range[0] + difficulty * (self.height_range[1] - self.height_range[0])
+        hole, width = rng.uniform(*self.hole_range), rng.uniform(*self.width_range)
+        yaw = rng.uniform(0, np.pi / 2)
+        c, s = np.cos(yaw), np.sin(yaw)
+        cx, cy = self.size[0] / 2, self.size[1] / 2
+        mid, along = hole + width / 2, hole + width
+        contact = {}
+        if self.soft:
+            contact = dict(solref=(0.06 + 0.04 * difficulty, 0.8), solimp=(0.7, 0.9, 0.003, 0.5, 2.0),
+                           friction=(rng.uniform(0.9, 1.5), 0.005, 0.0001))
+        # Two sides run the full outer length and two fit between them, so the corners do not overlap.
+        for dx, dy, hx, hy in ((mid, 0, width / 2, along), (-mid, 0, width / 2, along),
+                               (0, mid, hole, width / 2), (0, -mid, hole, width / 2)):
+            centre = (cx + c * dx - s * dy, cy + s * dx + c * dy, h / 2)
+            geoms.append(_add_box(body, centre, (hx, hy, h / 2), yaw, _RUG if self.soft else _THRESHOLD, **contact))
+        origin = (cx, cy, 0.0)
+        return TerrainOutput(origin=np.array(origin), geometries=geoms)
+
+
+@dataclass(kw_only=True)
 class HomeRugTerrainCfg(SubTerrainCfg):
     """Thick fluffy rugs: raised 5-25 mm with grippy, soft contact so a foot sinks in.
 
