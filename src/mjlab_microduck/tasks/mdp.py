@@ -151,7 +151,10 @@ except Exception as _e:  # pragma: no cover
 # normalizer and action std) and the iteration counter, and leaves critic and
 # optimizer fresh. A fresh critic's advantages are noise, and PPO would spend
 # them on the actor; MICRODUCK_CRITIC_WARMUP_ITERS=N freezes the actor for the
-# first N updates so the value function catches up first.
+# first N updates so the value function catches up first. The learning rate is
+# held during the freeze: the adaptive schedule sees zero KL from a frozen actor,
+# would raise the rate to its maximum, and the first unfrozen update would then
+# take an oversized step.
 ACTOR_ONLY_LOAD_ENV = "MICRODUCK_ACTOR_ONLY_LOAD"
 CRITIC_WARMUP_ENV = "MICRODUCK_CRITIC_WARMUP_ITERS"
 
@@ -177,6 +180,7 @@ try:
         self._critic_warmup_left = left - 1
         params = list(self.actor.parameters())
         flags = [p.requires_grad for p in params]
+        lr = self.learning_rate
         for p in params:
             p.requires_grad_(False)
         try:
@@ -184,6 +188,9 @@ try:
         finally:
             for p, f in zip(params, flags):
                 p.requires_grad_(f)
+            self.learning_rate = lr
+            for group in self.optimizer.param_groups:
+                group["lr"] = lr
 
     _PPO.update = _update_with_critic_warmup
     print("[mdp] Patch 6 active: MICRODUCK_ACTOR_ONLY_LOAD / MICRODUCK_CRITIC_WARMUP_ITERS")
@@ -7829,7 +7836,8 @@ class feet_air_time_lifted:
         asset_cfg: SceneEntityCfg = _DEFAULT_ASSET_CFG,
     ) -> torch.Tensor:
         sensor = env.scene[sensor_name]
-        heights = env.scene[height_sensor_name].data.heights
+        # A non-finite height sample must not poison the stored apex for the rest of the swing.
+        heights = torch.nan_to_num(env.scene[height_sensor_name].data.heights, nan=0.0, posinf=0.0, neginf=0.0)
         in_air = sensor.data.found == 0
         self.peak = torch.where(in_air, torch.maximum(self.peak, heights), self.peak)
         air = sensor.data.current_air_time
