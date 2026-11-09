@@ -145,6 +145,51 @@ try:
 except Exception as _e:  # pragma: no cover
     print(f"[mdp] Patch 5 NOT applied ({_e!r})")
 
+# Patch 6: resume the actor alone. A task that changes the critic's observations
+# (e.g. adds a privileged height scan) cannot load the old critic, so with
+# MICRODUCK_ACTOR_ONLY_LOAD=1 a checkpoint load restores the actor (with its
+# normalizer and action std) and the iteration counter, and leaves critic and
+# optimizer fresh. A fresh critic's advantages are noise, and PPO would spend
+# them on the actor; MICRODUCK_CRITIC_WARMUP_ITERS=N freezes the actor for the
+# first N updates so the value function catches up first.
+ACTOR_ONLY_LOAD_ENV = "MICRODUCK_ACTOR_ONLY_LOAD"
+CRITIC_WARMUP_ENV = "MICRODUCK_CRITIC_WARMUP_ITERS"
+
+try:
+    _load_before_actor_only = _MjlabRunner.load
+
+    def _load_actor_only(self, path, load_cfg=None, *args, **kwargs):
+        if load_cfg is None and os.environ.get(ACTOR_ONLY_LOAD_ENV, "") not in ("", "0"):
+            load_cfg = {"actor": True, "iteration": True}
+            print(f"[mdp] Patch 6: loading the actor only from {path} (fresh critic and optimizer)")
+        return _load_before_actor_only(self, path, load_cfg, *args, **kwargs)
+
+    _MjlabRunner.load = _load_actor_only
+
+    _orig_ppo_update = _PPO.update
+
+    def _update_with_critic_warmup(self):
+        left = getattr(self, "_critic_warmup_left", None)
+        if left is None:
+            left = self._critic_warmup_left = int(os.environ.get(CRITIC_WARMUP_ENV, "0") or 0)
+        if left <= 0:
+            return _orig_ppo_update(self)
+        self._critic_warmup_left = left - 1
+        params = list(self.actor.parameters())
+        flags = [p.requires_grad for p in params]
+        for p in params:
+            p.requires_grad_(False)
+        try:
+            return _orig_ppo_update(self)
+        finally:
+            for p, f in zip(params, flags):
+                p.requires_grad_(f)
+
+    _PPO.update = _update_with_critic_warmup
+    print("[mdp] Patch 6 active: MICRODUCK_ACTOR_ONLY_LOAD / MICRODUCK_CRITIC_WARMUP_ITERS")
+except Exception as _e:  # pragma: no cover
+    print(f"[mdp] Patch 6 NOT applied ({_e!r})")
+
 if TYPE_CHECKING:
     from mjlab.viewer.debug_visualizer import DebugVisualizer
 
@@ -5611,6 +5656,13 @@ def foot_air_time_safe(env: ManagerBasedRlEnv, sensor_name: str) -> torch.Tensor
     return _finite(_velocity_obs.foot_air_time(env, sensor_name))
 
 
+def height_scan_safe(env: ManagerBasedRlEnv, sensor_name: str) -> torch.Tensor:
+    """NaN-safe terrain `height_scan` (see note above)."""
+    from mjlab.envs.mdp.observations import height_scan
+
+    return _finite(height_scan(env, sensor_name))
+
+
 def head_pose_bias_penalty(
     env: ManagerBasedRlEnv,
     command_name: str = "head_pose",
@@ -7704,3 +7756,112 @@ def roulade_lateral_velocity_penalty(
     """Body-frame lateral (y) linear velocity² — keeps the roll straight."""
     asset: Entity = env.scene[asset_cfg.name]
     return torch.nan_to_num(asset.data.root_link_lin_vel_b[:, 1].pow(2), nan=0.0)
+
+
+# ---------------------------------------------------------------------------
+# Home walker: foot lift and edges
+# ---------------------------------------------------------------------------
+# A blind walker clears an edge only if every swing foot is high for the whole
+# swing, not just at its apex: the toe meets an edge early or late in the swing.
+# mjlab's feet_clearance (|h - target| x foot speed) and feet_swing_height (apex
+# error, paid once at landing) give the same pull per mm whatever the target
+# and amount to ~1% of the action-rate penalty, so the walker shuffles.
+
+
+def _command_active(env: ManagerBasedRlEnv, command_name: str, threshold: float) -> torch.Tensor:
+    command = env.command_manager.get_command(command_name)
+    total = torch.norm(command[:, :2], dim=1) + torch.abs(command[:, 2])
+    return total > threshold
+
+
+def swing_foot_height(
+    env: ManagerBasedRlEnv,
+    sensor_name: str,
+    height_sensor_name: str,
+    target_height: float,
+    command_name: str,
+    command_threshold: float = 0.01,
+    max_air_time: float = 0.3,
+) -> torch.Tensor:
+    """Per step, for each foot in the air: clip(height / target, 0, 1). Positive weight.
+
+    Height is the foot site's clearance above the highest terrain within the height
+    sensor's ring, so lifting before an edge pays. Only the first `max_air_time` of a
+    swing pays, otherwise standing on one leg with the other raised would be a jackpot.
+    """
+    contact = env.scene[sensor_name].data
+    heights = env.scene[height_sensor_name].data.heights
+    swinging = (contact.found == 0) & (contact.current_air_time < max_air_time)
+    lift = torch.clamp(heights / target_height, 0.0, 1.0) * swinging.float()
+    return lift.sum(dim=1) * _command_active(env, command_name, command_threshold).float()
+
+
+class feet_air_time_lifted:
+    """mjlab's air-time window reward, scaled per foot by how high the swing got.
+
+    The plain term pays a 6 mm hop as much as a 3 cm step. Here each foot's reward is
+    multiplied by clip(peak height of the current swing / target, 0, 1), and nothing is
+    paid unless the trunk actually moves (planar speed or yaw rate), so stepping in
+    place under a command does not collect it. Logs the mean swing apex of moving
+    robots at landing.
+    """
+
+    def __init__(self, cfg: RewardTermCfg, env: ManagerBasedRlEnv):
+        num_feet = env.scene[cfg.params["height_sensor_name"]].num_frames
+        self.peak = torch.zeros((env.num_envs, num_feet), device=env.device)
+        self.step_dt = env.step_dt
+
+    def reset(self, env_ids: torch.Tensor | slice | None = None):
+        self.peak[env_ids if env_ids is not None else slice(None)] = 0.0
+
+    def __call__(
+        self,
+        env: ManagerBasedRlEnv,
+        sensor_name: str,
+        height_sensor_name: str,
+        target_height: float,
+        command_name: str,
+        command_threshold: float = 0.01,
+        threshold_min: float = 0.125,
+        threshold_max: float = 0.3,
+        min_speed: float = 0.05,
+        min_yaw_rate: float = 0.3,
+        asset_cfg: SceneEntityCfg = _DEFAULT_ASSET_CFG,
+    ) -> torch.Tensor:
+        sensor = env.scene[sensor_name]
+        heights = env.scene[height_sensor_name].data.heights
+        in_air = sensor.data.found == 0
+        self.peak = torch.where(in_air, torch.maximum(self.peak, heights), self.peak)
+        air = sensor.data.current_air_time
+        in_window = (air > threshold_min) & (air < threshold_max)
+        lifted = torch.clamp(self.peak / target_height, 0.0, 1.0)
+        reward = (in_window.float() * lifted).sum(dim=1)
+
+        asset: Entity = env.scene[asset_cfg.name]
+        moving = (torch.norm(asset.data.root_link_lin_vel_b[:, :2], dim=1) > min_speed) | (
+            torch.abs(asset.data.root_link_ang_vel_b[:, 2]) > min_yaw_rate
+        )
+        active = _command_active(env, command_name, command_threshold) & moving
+
+        landed = sensor.compute_first_contact(dt=self.step_dt)
+        counted = landed & active.unsqueeze(1)
+        env.extras["log"]["Metrics/swing_apex_moving"] = (self.peak * counted).sum() / counted.sum().clamp(min=1)
+        self.peak = torch.where(landed, torch.zeros_like(self.peak), self.peak)
+        return reward * active.float()
+
+
+def foot_stumble(env: ManagerBasedRlEnv, sensor_name: str, ratio: float = 5.0) -> torch.Tensor:
+    """Feet whose contact force is mostly horizontal: a toe hitting the face of an edge.
+
+    Cost >= 0, negative weight. Stance friction stays below mu x Fz (mu <= 1.5 on the
+    home floors), so a horizontal force over `ratio` x the vertical one means the foot
+    is pushing against a vertical face (legged_gym's stumble term).
+    """
+    force = env.scene[sensor_name].data.force  # [B, F, 3], world frame
+    horizontal = torch.norm(force[..., :2], dim=-1)
+    stumble = horizontal > ratio * torch.abs(force[..., 2])
+    stumble &= horizontal > 0.05  # ignore numerical noise on unloaded feet
+    rate = stumble.float().sum(dim=1)
+    env.extras["log"]["Metrics/stumble_rate"] = rate.mean()
+    return rate
+
