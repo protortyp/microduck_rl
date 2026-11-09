@@ -52,3 +52,11 @@ def test_edge_frame_leaves_spawn_clear():
         gap = np.maximum(np.abs(local) - np.asarray(b.size[:2]), 0)
         assert np.linalg.norm(gap) >= 0.4 - 1e-6
 
+
+
+def test_robust_cfg_raises_swing_height():
+    from mjlab_microduck.tasks.microduck_home_env_cfg import ROBUST_SWING_HEIGHT
+
+    cfg = make_microduck_home_robust_env_cfg()
+    for name in ("foot_clearance", "foot_swing_height"):
+        assert cfg.rewards[name].params["target_height"] == ROBUST_SWING_HEIGHT

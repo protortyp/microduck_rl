@@ -133,6 +133,10 @@ ROBUST_ANG_VEL_Z = (-2.0, 2.0)
 ROBUST_FORWARD_FRACTION = 0.3
 # Uniform per env, so about a fifth of the commands last under 1.5 s.
 ROBUST_RESAMPLE_S = (0.3, 6.0)
+# The policy is blind (no height scan, as on the robot), so it clears an edge only by lifting every
+# swing foot above it. home-walk3, trained to a 2 cm swing height, fell at 42-59% of 1.5 cm edges
+# and 81-96% of 2 cm edges (docs/skills/walker/home-walk3_18000.json).
+ROBUST_SWING_HEIGHT = 0.03
 
 
 def _robust(cfg):
@@ -151,6 +155,8 @@ def _robust(cfg):
     twist.ranges.ang_vel_z = ROBUST_ANG_VEL_Z
     twist.rel_forward_envs = ROBUST_FORWARD_FRACTION
     twist.resampling_time_range = ROBUST_RESAMPLE_S
+    for name in ("foot_clearance", "foot_swing_height"):
+        cfg.rewards[name].params["target_height"] = ROBUST_SWING_HEIGHT
     # Same wide speed term and tight yaw term as the fast and turn variants: the base terms pay
     # most of their reward for undershooting fast or sharp commands.
     wide = deepcopy(cfg.rewards["track_linear_velocity"])
