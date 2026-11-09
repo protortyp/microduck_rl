@@ -69,10 +69,13 @@ def make_microduck_home_env_cfg(play: bool = False):
 
 # The fetch executive walks forward almost all the time; the base walker, trained on a symmetric
 # +-0.4 m/s range, realises at most 0.25 m/s and falls more the harder it is pushed. These settings
-# spend most samples on fast forward walking and make speed errors cost more.
-FAST_LIN_VEL_X = (-0.2, 0.5)
-FAST_FORWARD_FRACTION = 0.5
-FAST_TRACK_STD = 0.1
+# spend more samples on fast forward walking and add a wide speed-tracking term: the base term's
+# Gaussian (std 0.15) is flat at the 0.15-0.3 m/s shortfall a fast command starts from, so on its
+# own it pays nothing for walking faster and a walker trained with a tighter std slowed to a shuffle.
+FAST_LIN_VEL_X = (-0.2, 0.45)
+FAST_FORWARD_FRACTION = 0.3
+FAST_WIDE_TRACK_STD = 0.35
+FAST_WIDE_TRACK_WEIGHT = 2.0
 
 
 def make_microduck_home_fast_env_cfg(play: bool = False):
@@ -80,5 +83,8 @@ def make_microduck_home_fast_env_cfg(play: bool = False):
     twist = cfg.commands["twist"]
     twist.ranges.lin_vel_x = FAST_LIN_VEL_X
     twist.rel_forward_envs = FAST_FORWARD_FRACTION
-    cfg.rewards["track_linear_velocity"].params["std"] = FAST_TRACK_STD
+    wide = deepcopy(cfg.rewards["track_linear_velocity"])
+    wide.weight = FAST_WIDE_TRACK_WEIGHT
+    wide.params["std"] = FAST_WIDE_TRACK_STD
+    cfg.rewards["track_linear_velocity_wide"] = wide
     return cfg
