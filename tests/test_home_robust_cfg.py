@@ -52,13 +52,3 @@ def test_edge_frame_leaves_spawn_clear():
         gap = np.maximum(np.abs(local) - np.asarray(b.size[:2]), 0)
         assert np.linalg.norm(gap) >= 0.4 - 1e-6
 
-
-def test_velstand_home_keeps_recovery_and_gets_home_floors():
-    from mjlab_microduck.tasks.microduck_home_env_cfg import make_microduck_velstand_home_env_cfg
-
-    cfg = make_microduck_velstand_home_env_cfg()
-    subs = cfg.scene.terrain.terrain_generator.sub_terrains
-    assert "edge_soft" in subs and "rugs" in subs
-    assert "terrain_levels" not in cfg.curriculum
-    assert "random_prone_init" in cfg.events and "topple_push" in cfg.events
-    assert "track_yaw_fine" in cfg.rewards and "track_angular_velocity_tight" not in cfg.rewards

@@ -19,7 +19,6 @@ from .home_terrains import (
     HomeThresholdTerrainCfg,
 )
 from .microduck_velocity_env_cfg import make_microduck_velocity_env_cfg
-from .microduck_velstand_env_cfg import make_microduck_velstand_env_cfg
 
 # Smoothness penalty held at this value from iteration 1000 on. At -1.0 it outweighed velocity
 # tracking and the walker settled at 0.18 m/s against a 0.30 m/s command.
@@ -120,19 +119,6 @@ def make_microduck_home_turn_env_cfg(play: bool = False):
     return cfg
 
 
-def make_microduck_home_robust_env_cfg(play: bool = False):
-    return _robust(make_microduck_home_env_cfg(play=play))
-
-
-# VelStand (walk + protective fall + get-up, real-robot tested as v8) on the same floors and
-# commands. Resumed from v8, it keeps getting up after falls, which the velocity-recipe walkers
-# cannot: there a fall ends the fetch episode.
-def make_microduck_velstand_home_env_cfg(play: bool = False):
-    cfg = make_microduck_velstand_env_cfg(play=play, rough=True)
-    _home_floors(cfg, play)
-    return _robust(cfg)
-
-
 # Robust home walker, the base skill for the fetch task. Measured gaps of home-walk3 inside fetch:
 # it tips at 1.2-1.4 cm rug edges (most held-out falls happen there), and the fetch executive
 # commands turn rates up to 3 rad/s and changes the command every 0.2 s, while the walker was
@@ -170,21 +156,11 @@ def _robust(cfg):
     wide = deepcopy(cfg.rewards["track_linear_velocity"])
     wide.weight, wide.params["std"] = FAST_WIDE_TRACK_WEIGHT, FAST_WIDE_TRACK_STD
     cfg.rewards["track_linear_velocity_wide"] = wide
-    if "track_yaw_fine" not in cfg.rewards:  # VelStand already has its own fine yaw term
-        tight = deepcopy(cfg.rewards["track_angular_velocity"])
-        tight.weight, tight.params["std"] = TURN_TRACK_WEIGHT, TURN_TRACK_STD
-        cfg.rewards["track_angular_velocity_tight"] = tight
+    tight = deepcopy(cfg.rewards["track_angular_velocity"])
+    tight.weight, tight.params["std"] = TURN_TRACK_WEIGHT, TURN_TRACK_STD
+    cfg.rewards["track_angular_velocity_tight"] = tight
     return cfg
 
 
 def make_microduck_home_robust_env_cfg(play: bool = False):
     return _robust(make_microduck_home_env_cfg(play=play))
-
-
-# VelStand (walk + protective fall + get-up, real-robot tested as v8) on the same floors and
-# commands. Resumed from v8, it keeps getting up after falls, which the velocity-recipe walkers
-# cannot: there a fall ends the fetch episode.
-def make_microduck_velstand_home_env_cfg(play: bool = False):
-    cfg = make_microduck_velstand_env_cfg(play=play, rough=True)
-    _home_floors(cfg, play)
-    return _robust(cfg)
