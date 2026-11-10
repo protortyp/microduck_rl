@@ -11,7 +11,7 @@ import mujoco as _mujoco
 from mjlab.terrains.primitive_terrains import BoxFlatTerrainCfg, BoxRandomGridTerrainCfg
 from mjlab.terrains.heightfield_terrains import HfPyramidSlopedTerrainCfg
 from mjlab.terrains.terrain_generator import TerrainGeneratorCfg
-from mjlab.managers import ObservationTermCfg, RewardTermCfg
+from mjlab.managers import ObservationTermCfg, RewardTermCfg, SceneEntityCfg
 from mjlab.sensor import GridPatternCfg, ObjRef, RayCastSensorCfg
 
 from . import mdp as microduck_mdp
@@ -285,4 +285,36 @@ def make_microduck_home_lift_turn_env_cfg(play: bool = False):
     cfg.rewards["track_yaw_rate_averaged"] = RewardTermCfg(
         func=microduck_mdp.track_yaw_rate_averaged, weight=LIFT_TURN_AVG_YAW_WEIGHT,
         params={"std": LIFT_TURN_AVG_YAW_STD, "command_name": "twist", "tau": LIFT_TURN_AVG_YAW_TAU})
+    return cfg
+
+
+# Posture for the lift walker. The lift walkers stand and walk in a splayed crouch: after a stop
+# home-agile1 holds both hip-yaw joints near their limit, one foot 6 cm ahead of the trunk and
+# the other 6 cm behind, the trunk at 8.4 cm above the feet (home-robust1: feet side by side,
+# 11.6 cm), and the pose reward sits at a quarter of home-robust1's. That moves the zone where the
+# crouch-and-bite succeeds by 4 cm and makes 4% of crouches fall, and a held crouch loads the
+# servos. The Gaussian pose term cannot pull the joints back from that far, so this variant adds
+# linear costs: on all leg joints while standing, on hip yaw and roll at all times (the average
+# over a stride should stay near zero even when turning), and on a trunk lower than 10 cm.
+STANCE_STAND_WEIGHT = -4.0
+STANCE_HIP_WEIGHT = -1.5
+STANCE_HEIGHT_WEIGHT = -30.0
+STANCE_MIN_HEIGHT = 0.10
+_LEG_JOINTS = (r"^(?!passive_|.*neck.*|.*head.*).*",)
+_HIP_SPLAY_JOINTS = (r".*hip_yaw.*", r".*hip_roll.*")
+
+
+def make_microduck_home_lift_stance_env_cfg(play: bool = False):
+    cfg = make_microduck_home_lift_turn_env_cfg(play=play)
+    cfg.rewards["stand_posture"] = RewardTermCfg(
+        func=microduck_mdp.leg_posture_l1, weight=STANCE_STAND_WEIGHT,
+        params={"command_name": "twist", "standing_only": True,
+                "asset_cfg": SceneEntityCfg("robot", joint_names=_LEG_JOINTS)})
+    cfg.rewards["hip_splay"] = RewardTermCfg(
+        func=microduck_mdp.leg_posture_l1, weight=STANCE_HIP_WEIGHT,
+        params={"command_name": "twist", "standing_only": False,
+                "asset_cfg": SceneEntityCfg("robot", joint_names=_HIP_SPLAY_JOINTS)})
+    cfg.rewards["trunk_low"] = RewardTermCfg(
+        func=microduck_mdp.trunk_below_height, weight=STANCE_HEIGHT_WEIGHT,
+        params={"min_height": STANCE_MIN_HEIGHT})
     return cfg

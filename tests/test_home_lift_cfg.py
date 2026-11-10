@@ -8,6 +8,7 @@ from mjlab_microduck.tasks.microduck_home_env_cfg import (
     LIFT_TARGET,
     make_microduck_home_lift_agile_env_cfg,
     make_microduck_home_lift_env_cfg,
+    make_microduck_home_lift_stance_env_cfg,
     make_microduck_home_lift_turn_env_cfg,
     make_microduck_home_lift_fast_env_cfg,
 )
@@ -90,3 +91,24 @@ def test_averaged_yaw_tracking_ignores_the_waddle_and_prices_the_mean():
     third, short_third = run(0.5)
     assert on_target > 0.8 and third < 0.5
     assert abs(short_on) < 0.4 and short_third == pytest.approx(1.0, abs=0.4)
+
+
+def test_stance_adds_linear_posture_costs():
+    cfg = make_microduck_home_lift_stance_env_cfg()
+    r = cfg.rewards
+    for name in ("stand_posture", "hip_splay", "trunk_low"):
+        assert r[name].weight < 0
+    assert r["stand_posture"].params["standing_only"] and not r["hip_splay"].params["standing_only"]
+    assert "track_yaw_rate_averaged" in r and r["air_time"].func is mdp.feet_air_time_lifted
+
+    data = SimpleNamespace(joint_pos=torch.tensor([[0.5, -0.5, 0.0]]), default_joint_pos=torch.zeros(1, 3))
+    asset_cfg = SimpleNamespace(name="robot", joint_ids=[0, 1])
+
+    def env(cmd):
+        cm = SimpleNamespace(get_command=lambda _: torch.tensor([cmd], dtype=torch.float32))
+        return SimpleNamespace(scene={"robot": SimpleNamespace(data=data)}, command_manager=cm)
+
+    kw = dict(command_name="twist", asset_cfg=asset_cfg)
+    assert mdp.leg_posture_l1(env((0, 0, 0)), standing_only=True, **kw).item() == pytest.approx(0.5)
+    assert mdp.leg_posture_l1(env((0.2, 0, 0)), standing_only=True, **kw).item() == 0.0
+    assert mdp.leg_posture_l1(env((0.2, 0, 0)), standing_only=False, **kw).item() == pytest.approx(0.5)

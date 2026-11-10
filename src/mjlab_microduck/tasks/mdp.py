@@ -7912,3 +7912,43 @@ class track_yaw_rate_averaged:
         shortfall = (torch.abs(cmd) - self.avg * torch.sign(cmd)) * turning
         env.extras["log"]["Metrics/yaw_rate_shortfall"] = shortfall.sum() / turning.sum().clamp(min=1)
         return torch.exp(-torch.square(cmd - self.avg) / std**2)
+
+
+def leg_posture_l1(
+    env: ManagerBasedRlEnv,
+    command_name: str,
+    standing_only: bool,
+    command_threshold: float = 0.01,
+    asset_cfg: SceneEntityCfg = _DEFAULT_ASSET_CFG,
+) -> torch.Tensor:
+    """Mean absolute deviation of the selected joints from the default pose (a cost).
+
+    The Gaussian pose term is flat once a joint is several stds away, so a walker that has
+    drifted into a splayed crouch gets no pull back from it; this cost is linear in the
+    deviation at any distance. With standing_only it applies only under a zero command.
+    """
+    asset: Entity = env.scene[asset_cfg.name]
+    dev = torch.abs(asset.data.joint_pos[:, asset_cfg.joint_ids] - asset.data.default_joint_pos[:, asset_cfg.joint_ids])
+    cost = torch.nan_to_num(dev, nan=0.0, posinf=0.0, neginf=0.0).mean(dim=1)
+    if standing_only:
+        cost = cost * (~_command_active(env, command_name, command_threshold)).float()
+    return cost
+
+
+def trunk_below_height(
+    env: ManagerBasedRlEnv,
+    min_height: float,
+    site_names: tuple[str, ...] = ("left_foot", "right_foot"),
+    asset_cfg: SceneEntityCfg = _DEFAULT_ASSET_CFG,
+) -> torch.Tensor:
+    """How far (m) the trunk sits below min_height above its lower foot (a cost).
+
+    Measured against the feet rather than the world, so it holds on rugs and ramps. Logs the
+    mean trunk height.
+    """
+    asset: Entity = env.scene[asset_cfg.name]
+    sites = asset.find_sites(site_names)[0]
+    height = asset.data.root_link_pos_w[:, 2] - asset.data.site_pos_w[:, sites, 2].min(dim=1).values
+    height = torch.nan_to_num(height, nan=min_height, posinf=min_height, neginf=min_height)
+    env.extras["log"]["Metrics/trunk_height"] = height.mean()
+    return torch.clamp(min_height - height, min=0.0)
