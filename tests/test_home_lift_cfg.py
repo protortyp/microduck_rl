@@ -6,6 +6,7 @@ from mjlab_microduck.tasks import mdp
 from mjlab_microduck.tasks.microduck_home_env_cfg import (
     LIFT_FAST_LIN_VEL_X,
     LIFT_TARGET,
+    make_microduck_home_lift_agile_env_cfg,
     make_microduck_home_lift_env_cfg,
     make_microduck_home_lift_fast_env_cfg,
 )
@@ -56,3 +57,12 @@ def test_lift_fast_keeps_lift_terms_and_widens_forward_commands():
     assert cfg.commands["twist"].rel_forward_envs > 0.3
     assert cfg.rewards["air_time"].func is mdp.feet_air_time_lifted
     assert "height_scan" in cfg.observations["critic"].terms
+
+
+def test_lift_agile_adds_wide_yaw_term_and_turn_in_place_share():
+    cfg, fast = make_microduck_home_lift_agile_env_cfg(), make_microduck_home_lift_fast_env_cfg()
+    r = cfg.rewards
+    assert r["track_angular_velocity_wide"].params["std"] > r["track_angular_velocity"].params["std"]
+    assert r["track_angular_velocity_tight"].params["std"] < r["track_angular_velocity"].params["std"]
+    assert cfg.commands["twist"].rel_turn_in_place_envs > fast.commands["twist"].rel_turn_in_place_envs
+    assert cfg.commands["twist"].ranges.lin_vel_x == LIFT_FAST_LIN_VEL_X
