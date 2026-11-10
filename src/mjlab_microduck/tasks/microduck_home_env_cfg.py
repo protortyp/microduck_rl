@@ -269,3 +269,20 @@ def make_microduck_home_lift_agile_env_cfg(play: bool = False):
     cfg.rewards["track_angular_velocity_wide"] = wide
     cfg.commands["twist"].rel_turn_in_place_envs = LIFT_AGILE_TURN_IN_PLACE_FRACTION
     return cfg
+
+
+# The yaw terms above act on the instantaneous yaw rate, which the waddle swings by about
+# +-1.1 rad/s every step (see mdp.track_yaw_rate_averaged): home-agile1's yaw rewards barely moved
+# in 2000 iterations. This variant adds tracking of the stride-averaged yaw rate, with a std
+# wide enough to have gradient at the ~1 rad/s shortfall the walker starts from.
+LIFT_TURN_AVG_YAW_STD = 1.0
+LIFT_TURN_AVG_YAW_WEIGHT = 3.0
+LIFT_TURN_AVG_YAW_TAU = 0.4  # s, about one stride
+
+
+def make_microduck_home_lift_turn_env_cfg(play: bool = False):
+    cfg = make_microduck_home_lift_agile_env_cfg(play=play)
+    cfg.rewards["track_yaw_rate_averaged"] = RewardTermCfg(
+        func=microduck_mdp.track_yaw_rate_averaged, weight=LIFT_TURN_AVG_YAW_WEIGHT,
+        params={"std": LIFT_TURN_AVG_YAW_STD, "command_name": "twist", "tau": LIFT_TURN_AVG_YAW_TAU})
+    return cfg

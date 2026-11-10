@@ -7873,3 +7873,42 @@ def foot_stumble(env: ManagerBasedRlEnv, sensor_name: str, ratio: float = 5.0) -
     env.extras["log"]["Metrics/stumble_rate"] = rate.mean()
     return rate
 
+
+
+class track_yaw_rate_averaged:
+    """Yaw-rate tracking on the stride-averaged yaw rate.
+
+    The trunk yaws back and forth with every step: measured on the lift walker the yaw rate
+    swings by about +-1.1 rad/s around its mean, as much as the commands themselves. The
+    per-step tracking terms therefore mostly price the waddle, and a walker that turns at a
+    third of the command collects nearly what one that tracks it would. Here the error is
+    taken on an exponential average of the yaw rate over `tau` seconds (about one stride), so
+    the reward follows the turn the robot actually makes. Logs the mean shortfall of that
+    average on robots commanded to turn.
+    """
+
+    def __init__(self, cfg: RewardTermCfg, env: ManagerBasedRlEnv):
+        self.avg = torch.zeros(env.num_envs, device=env.device)
+        self.alpha = min(1.0, env.step_dt / cfg.params.get("tau", 0.4))
+
+    def reset(self, env_ids: torch.Tensor | slice | None = None):
+        self.avg[env_ids if env_ids is not None else slice(None)] = 0.0
+
+    def __call__(
+        self,
+        env: ManagerBasedRlEnv,
+        std: float,
+        command_name: str,
+        tau: float = 0.4,
+        turn_threshold: float = 0.5,
+        asset_cfg: SceneEntityCfg = _DEFAULT_ASSET_CFG,
+    ) -> torch.Tensor:
+        del tau  # read once in __init__
+        asset: Entity = env.scene[asset_cfg.name]
+        wz = torch.nan_to_num(asset.data.root_link_ang_vel_b[:, 2], nan=0.0, posinf=0.0, neginf=0.0)
+        self.avg += self.alpha * (wz - self.avg)
+        cmd = env.command_manager.get_command(command_name)[:, 2]
+        turning = torch.abs(cmd) > turn_threshold
+        shortfall = (torch.abs(cmd) - self.avg * torch.sign(cmd)) * turning
+        env.extras["log"]["Metrics/yaw_rate_shortfall"] = shortfall.sum() / turning.sum().clamp(min=1)
+        return torch.exp(-torch.square(cmd - self.avg) / std**2)
