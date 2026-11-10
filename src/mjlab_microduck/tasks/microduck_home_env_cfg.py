@@ -232,3 +232,20 @@ def _lift(cfg):
 def make_microduck_home_lift_env_cfg(play: bool = False):
     return _lift(make_microduck_home_robust_env_cfg(play=play))
 
+
+# Speed with the lift walker. home-lift1 realises about 0.21 m/s at a 0.25 m/s command; the fetch
+# gate asks for 0.3 m/s. Forward-only envs sample |vx| clamped to at least 0.3 m/s (mjlab's
+# rel_forward_envs), so raising the top of the range to 0.5 and their share to 0.45 puts most of
+# the forward experience at 0.3-0.5 m/s, where the wide speed term (std 0.35) still has gradient.
+# Edges, lift and stumble terms are unchanged, so speed is bought only where it does not cost falls.
+LIFT_FAST_LIN_VEL_X = (-0.2, 0.5)
+LIFT_FAST_FORWARD_FRACTION = 0.45
+
+
+def make_microduck_home_lift_fast_env_cfg(play: bool = False):
+    cfg = make_microduck_home_lift_env_cfg(play=play)
+    twist = cfg.commands["twist"]
+    twist.ranges.lin_vel_x = LIFT_FAST_LIN_VEL_X
+    twist.rel_forward_envs = LIFT_FAST_FORWARD_FRACTION
+    return cfg
+

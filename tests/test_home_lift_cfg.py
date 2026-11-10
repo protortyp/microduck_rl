@@ -4,8 +4,10 @@ from types import SimpleNamespace
 
 from mjlab_microduck.tasks import mdp
 from mjlab_microduck.tasks.microduck_home_env_cfg import (
+    LIFT_FAST_LIN_VEL_X,
     LIFT_TARGET,
     make_microduck_home_lift_env_cfg,
+    make_microduck_home_lift_fast_env_cfg,
 )
 
 
@@ -46,3 +48,11 @@ def test_foot_stumble_flags_horizontal_pushes_only():
     force = torch.tensor([[[3.0, 0.0, 0.2], [0.5, 0.0, 2.0]]])  # toe against a face; normal stance
     env = _env([[1, 1]], [[0.0, 0.0]], [[0.0, 0.0]], force=force)
     assert mdp.foot_stumble(env, sensor_name="c").item() == 1.0
+
+
+def test_lift_fast_keeps_lift_terms_and_widens_forward_commands():
+    cfg = make_microduck_home_lift_fast_env_cfg()
+    assert cfg.commands["twist"].ranges.lin_vel_x == LIFT_FAST_LIN_VEL_X
+    assert cfg.commands["twist"].rel_forward_envs > 0.3
+    assert cfg.rewards["air_time"].func is mdp.feet_air_time_lifted
+    assert "height_scan" in cfg.observations["critic"].terms
