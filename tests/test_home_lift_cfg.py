@@ -134,3 +134,13 @@ def test_pace_tracks_stride_averaged_forward_speed():
     assert last > first
     assert env.extras["log"]["Metrics/forward_speed_shortfall"].item() == pytest.approx(0.2, abs=1e-3)
     assert last == pytest.approx(math.exp(-(0.2 / 0.15) ** 2), abs=1e-3)
+
+
+def test_servo_effort_excess_prices_only_what_exceeds_the_limits():
+    data = SimpleNamespace(joint_vel=torch.tensor([[2.0, -8.0], [1.0, 1.0]]),
+                           actuator_force=torch.tensor([[0.2, 0.6], [0.1, 0.1]]))
+    env = SimpleNamespace(scene={"robot": SimpleNamespace(data=data)}, extras={"log": {}})
+    cost = mdp.servo_effort_excess(env, speed_limit=5.0, torque_limit=0.5, asset_cfg=SimpleNamespace(name="robot"))
+    assert cost[0].item() == pytest.approx(3.0**2 + 100.0 * 0.1**2)
+    assert cost[1].item() == 0.0
+    assert env.extras["log"]["Metrics/peak_joint_speed"].item() == pytest.approx(4.5)

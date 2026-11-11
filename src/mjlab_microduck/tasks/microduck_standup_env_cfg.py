@@ -1157,3 +1157,20 @@ MicroduckStandUpRlCfg = RslRlOnPolicyRunnerCfg(
     num_steps_per_env=24,
     max_iterations=15_000,
 )
+
+
+# Gentle get-up. The stand-up policy rises in 0.2-0.5 s by running the servos at their torque
+# limit (0.64 Nm on more than half the robots) and at 10-14 rad/s, which is hard on the gears and
+# the part of the skill least likely to transfer. The get-up gate allows 5 s, so this variant
+# prices only joint speed and torque above soft limits and leaves slow motion free.
+GENTLE_SPEED_LIMIT = 5.0  # rad/s
+GENTLE_TORQUE_LIMIT = 0.45  # Nm, about 70% of the modelled limit
+GENTLE_EFFORT_WEIGHT = -0.05
+
+
+def make_microduck_standup_gentle_env_cfg(play: bool = False, rough: bool = False) -> ManagerBasedRlEnvCfg:
+    cfg = make_microduck_standup_env_cfg(play=play, rough=rough)
+    cfg.rewards["servo_effort_excess"] = RewardTermCfg(
+        func=microduck_mdp.servo_effort_excess, weight=GENTLE_EFFORT_WEIGHT,
+        params={"speed_limit": GENTLE_SPEED_LIMIT, "torque_limit": GENTLE_TORQUE_LIMIT})
+    return cfg

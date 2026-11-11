@@ -7914,6 +7914,30 @@ class track_yaw_rate_averaged:
         return torch.exp(-torch.square(cmd - self.avg) / std**2)
 
 
+def servo_effort_excess(
+    env: ManagerBasedRlEnv,
+    speed_limit: float,
+    torque_limit: float,
+    torque_scale: float = 100.0,
+    asset_cfg: SceneEntityCfg = _DEFAULT_ASSET_CFG,
+) -> torch.Tensor:
+    """Squared joint speed and actuator torque above soft limits, summed over joints (a cost).
+
+    Unlike an L2 cost on all speed or torque, motion below the limits is free, so slow moves and
+    holding a pose cost nothing and only the violent part of a motion is priced. torque_scale
+    brings (Nm)^2 to the scale of (rad/s)^2. Logs the batch mean of the per-robot peak joint
+    speed and peak torque.
+    """
+    asset: Entity = env.scene[asset_cfg.name]
+    speed = torch.nan_to_num(asset.data.joint_vel, nan=0.0, posinf=0.0, neginf=0.0).abs()
+    torque = torch.nan_to_num(asset.data.actuator_force, nan=0.0, posinf=0.0, neginf=0.0).abs()
+    env.extras["log"]["Metrics/peak_joint_speed"] = speed.max(dim=1).values.mean()
+    env.extras["log"]["Metrics/peak_joint_torque"] = torque.max(dim=1).values.mean()
+    over_speed = torch.square((speed - speed_limit).clamp(min=0.0)).sum(dim=1)
+    over_torque = torch.square((torque - torque_limit).clamp(min=0.0)).sum(dim=1)
+    return over_speed + torque_scale * over_torque
+
+
 class track_forward_speed_averaged:
     """Forward-speed tracking on the stride-averaged trunk speed.
 
