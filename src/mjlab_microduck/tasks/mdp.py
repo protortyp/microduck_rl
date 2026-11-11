@@ -7914,6 +7914,37 @@ class track_yaw_rate_averaged:
         return torch.exp(-torch.square(cmd - self.avg) / std**2)
 
 
+def reverse_yaw_command(
+    env: ManagerBasedRlEnv,
+    env_ids: torch.Tensor,
+    command_name: str,
+    fraction: float,
+    yaw_range: tuple[float, float],
+) -> None:
+    """Reverse the commanded yaw rate of a fixed share of the robots (an interval event).
+
+    A heading controller near its goal reverses the turn command every few steps. Independent
+    resampling almost never produces that sequence, and a walker that follows the turn command
+    falls in it far more often than under any single command. The robots with
+    env index % 100 < 100 * fraction get the opposite sign and a magnitude from yaw_range each
+    time the event fires; standing robots keep their zero command.
+    """
+    term = env.command_manager.get_term(command_name)
+    ids = env_ids[(env_ids % 100) < int(round(100 * fraction))]
+    ids = ids[~term.is_standing_env[ids]]
+    if len(ids) == 0:
+        return
+    current = term.vel_command_b[ids, 2]
+    coin = torch.where(torch.rand(len(ids), device=env.device) < 0.5, -1.0, 1.0)
+    sign = torch.where(current.abs() > 1e-3, -torch.sign(current), coin)
+    mag = torch.empty(len(ids), device=env.device).uniform_(*yaw_range)
+    term.vel_command_b[ids, 2] = sign * mag
+    # A heading-controlled robot would have its yaw command recomputed from the heading error.
+    term.is_heading_env[ids] = False
+    if hasattr(term, "vel_command_w"):
+        term.vel_command_w[ids] = term.vel_command_b[ids]
+
+
 def servo_effort_excess(
     env: ManagerBasedRlEnv,
     speed_limit: float,

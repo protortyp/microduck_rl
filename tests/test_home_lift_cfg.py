@@ -144,3 +144,20 @@ def test_servo_effort_excess_prices_only_what_exceeds_the_limits():
     assert cost[0].item() == pytest.approx(3.0**2 + 100.0 * 0.1**2)
     assert cost[1].item() == 0.0
     assert env.extras["log"]["Metrics/peak_joint_speed"].item() == pytest.approx(4.5)
+
+
+def test_reverse_yaw_command_flips_a_fixed_share_and_spares_standing_robots():
+    n = 200
+    cmd = torch.zeros(n, 3)
+    cmd[:, 2] = 1.5
+    term = SimpleNamespace(vel_command_b=cmd, vel_command_w=cmd.clone(),
+                           is_standing_env=torch.zeros(n, dtype=torch.bool),
+                           is_heading_env=torch.ones(n, dtype=torch.bool))
+    term.is_standing_env[0] = True
+    env = SimpleNamespace(device="cpu", command_manager=SimpleNamespace(get_term=lambda _: term))
+    mdp.reverse_yaw_command(env, torch.arange(n), "twist", fraction=0.25, yaw_range=(1.0, 2.0))
+    flipped = cmd[:, 2] < 0
+    assert int(flipped.sum()) == 49  # 25 of every 100, minus the standing one
+    assert not flipped[0] and flipped[1] and not flipped[25] and flipped[100]
+    assert (cmd[flipped, 2].abs() >= 1.0).all() and (cmd[flipped, 2].abs() <= 2.0).all()
+    assert not term.is_heading_env[flipped].any() and term.is_heading_env[~flipped].all()

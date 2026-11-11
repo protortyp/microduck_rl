@@ -11,7 +11,7 @@ import mujoco as _mujoco
 from mjlab.terrains.primitive_terrains import BoxFlatTerrainCfg, BoxRandomGridTerrainCfg
 from mjlab.terrains.heightfield_terrains import HfPyramidSlopedTerrainCfg
 from mjlab.terrains.terrain_generator import TerrainGeneratorCfg
-from mjlab.managers import ObservationTermCfg, RewardTermCfg, SceneEntityCfg
+from mjlab.managers import EventTermCfg, ObservationTermCfg, RewardTermCfg, SceneEntityCfg
 from mjlab.sensor import GridPatternCfg, ObjRef, RayCastSensorCfg
 
 from . import mdp as microduck_mdp
@@ -335,4 +335,21 @@ def make_microduck_home_lift_pace_env_cfg(play: bool = False):
     cfg.rewards["track_forward_speed_averaged"] = RewardTermCfg(
         func=microduck_mdp.track_forward_speed_averaged, weight=PACE_AVG_SPEED_WEIGHT,
         params={"std": PACE_AVG_SPEED_STD, "command_name": "twist", "tau": PACE_AVG_SPEED_TAU})
+    return cfg
+
+
+# Reversing turn commands. home-pace1 falls in 1-5% of runs over 1.5 cm edges under a straight,
+# turning or fetch-like command and in 13-16% when the yaw command flips sign every 0.2-0.6 s,
+# which is what a heading controller does near its goal. A quarter of the robots get that
+# sequence here.
+REVERSAL_FRACTION = 0.25
+REVERSAL_INTERVAL_S = (0.2, 0.6)
+REVERSAL_YAW_RANGE = (1.0, 2.0)
+
+
+def make_microduck_home_lift_reversal_env_cfg(play: bool = False):
+    cfg = make_microduck_home_lift_pace_env_cfg(play=play)
+    cfg.events["reverse_yaw_command"] = EventTermCfg(
+        func=microduck_mdp.reverse_yaw_command, mode="interval", interval_range_s=REVERSAL_INTERVAL_S,
+        params={"command_name": "twist", "fraction": REVERSAL_FRACTION, "yaw_range": REVERSAL_YAW_RANGE})
     return cfg
