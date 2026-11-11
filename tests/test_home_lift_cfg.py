@@ -1,3 +1,4 @@
+import math
 import pytest
 import torch
 from types import SimpleNamespace
@@ -8,6 +9,7 @@ from mjlab_microduck.tasks.microduck_home_env_cfg import (
     LIFT_TARGET,
     make_microduck_home_lift_agile_env_cfg,
     make_microduck_home_lift_env_cfg,
+    make_microduck_home_lift_pace_env_cfg,
     make_microduck_home_lift_stance_env_cfg,
     make_microduck_home_lift_turn_env_cfg,
     make_microduck_home_lift_fast_env_cfg,
@@ -112,3 +114,23 @@ def test_stance_adds_linear_posture_costs():
     assert mdp.leg_posture_l1(env((0, 0, 0)), standing_only=True, **kw).item() == pytest.approx(0.5)
     assert mdp.leg_posture_l1(env((0.2, 0, 0)), standing_only=True, **kw).item() == 0.0
     assert mdp.leg_posture_l1(env((0.2, 0, 0)), standing_only=False, **kw).item() == pytest.approx(0.5)
+
+
+def test_pace_tracks_stride_averaged_forward_speed():
+    cfg = make_microduck_home_lift_pace_env_cfg()
+    term = cfg.rewards["track_forward_speed_averaged"]
+    assert term.weight > 0 and "stand_posture" in cfg.rewards
+
+    data = SimpleNamespace(root_link_lin_vel_b=torch.tensor([[0.2, 0.0, 0.0]]))
+    cm = SimpleNamespace(get_command=lambda _: torch.tensor([[0.4, 0.0, 0.0]]))
+    env = SimpleNamespace(num_envs=1, device="cpu", step_dt=0.02, extras={"log": {}},
+                          scene={"robot": SimpleNamespace(data=data)}, command_manager=cm)
+    f = mdp.track_forward_speed_averaged(term, env)
+    kw = dict(std=0.15, command_name="twist", asset_cfg=SimpleNamespace(name="robot"))
+    first = f(env, **kw).item()
+    for _ in range(200):
+        last = f(env, **kw).item()
+    # The average converges to the realised 0.2 m/s: the 0.2 m/s shortfall is logged and paid for.
+    assert last > first
+    assert env.extras["log"]["Metrics/forward_speed_shortfall"].item() == pytest.approx(0.2, abs=1e-3)
+    assert last == pytest.approx(math.exp(-(0.2 / 0.15) ** 2), abs=1e-3)

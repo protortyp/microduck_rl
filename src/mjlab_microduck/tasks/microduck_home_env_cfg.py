@@ -318,3 +318,21 @@ def make_microduck_home_lift_stance_env_cfg(play: bool = False):
         func=microduck_mdp.trunk_below_height, weight=STANCE_HEIGHT_WEIGHT,
         params={"min_height": STANCE_MIN_HEIGHT})
     return cfg
+
+
+# Forward speed for the stance walker. home-relift2 realises 0.23 m/s at a 0.3 m/s command and
+# 0.31 at 0.5, and fetch deliveries scale with the cruise speed. The per-step speed terms are
+# nearly saturated at that shortfall once the within-stride surge is counted, so this variant adds
+# tracking of the stride-averaged forward speed, as HomeLiftTurn does for the yaw rate. The std is
+# about the shortfall at the top of the command range, so the term has gradient there.
+PACE_AVG_SPEED_STD = 0.15
+PACE_AVG_SPEED_WEIGHT = 3.0
+PACE_AVG_SPEED_TAU = 0.4  # s, about one stride
+
+
+def make_microduck_home_lift_pace_env_cfg(play: bool = False):
+    cfg = make_microduck_home_lift_stance_env_cfg(play=play)
+    cfg.rewards["track_forward_speed_averaged"] = RewardTermCfg(
+        func=microduck_mdp.track_forward_speed_averaged, weight=PACE_AVG_SPEED_WEIGHT,
+        params={"std": PACE_AVG_SPEED_STD, "command_name": "twist", "tau": PACE_AVG_SPEED_TAU})
+    return cfg

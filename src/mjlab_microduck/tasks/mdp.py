@@ -7914,6 +7914,44 @@ class track_yaw_rate_averaged:
         return torch.exp(-torch.square(cmd - self.avg) / std**2)
 
 
+class track_forward_speed_averaged:
+    """Forward-speed tracking on the stride-averaged trunk speed.
+
+    The trunk surges and brakes within every step, so the per-step speed terms partly price that
+    oscillation, as the per-step yaw terms price the waddle (track_yaw_rate_averaged): the lift
+    walkers realise 0.23 m/s at a 0.3 m/s command and 0.31 at 0.5 while collecting most of the
+    per-step reward. The error here is taken on an exponential average of the body-frame forward
+    speed over `tau` seconds. Logs the mean shortfall of that average on robots commanded to
+    walk forward.
+    """
+
+    def __init__(self, cfg: RewardTermCfg, env: ManagerBasedRlEnv):
+        self.avg = torch.zeros(env.num_envs, device=env.device)
+        self.alpha = min(1.0, env.step_dt / cfg.params.get("tau", 0.4))
+
+    def reset(self, env_ids: torch.Tensor | slice | None = None):
+        self.avg[env_ids if env_ids is not None else slice(None)] = 0.0
+
+    def __call__(
+        self,
+        env: ManagerBasedRlEnv,
+        std: float,
+        command_name: str,
+        tau: float = 0.4,
+        walk_threshold: float = 0.15,
+        asset_cfg: SceneEntityCfg = _DEFAULT_ASSET_CFG,
+    ) -> torch.Tensor:
+        del tau  # read once in __init__
+        asset: Entity = env.scene[asset_cfg.name]
+        vx = torch.nan_to_num(asset.data.root_link_lin_vel_b[:, 0], nan=0.0, posinf=0.0, neginf=0.0)
+        self.avg += self.alpha * (vx - self.avg)
+        cmd = env.command_manager.get_command(command_name)[:, 0]
+        forward = cmd > walk_threshold
+        shortfall = (cmd - self.avg) * forward
+        env.extras["log"]["Metrics/forward_speed_shortfall"] = shortfall.sum() / forward.sum().clamp(min=1)
+        return torch.exp(-torch.square(cmd - self.avg) / std**2)
+
+
 def leg_posture_l1(
     env: ManagerBasedRlEnv,
     command_name: str,
